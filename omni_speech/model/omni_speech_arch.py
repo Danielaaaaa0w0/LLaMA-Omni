@@ -44,7 +44,6 @@ class OmniSpeechMetaModel:
         self.config.speech_projector_type = getattr(model_args, 'speech_projector_type', 'linear')
         self.config.speech_encoder_ds_rate = getattr(model_args, 'speech_encoder_ds_rate', 5)
         self.config.speech_encoder_hidden_size = getattr(model_args, 'speech_encoder_hidden_size', 1280)
-
         if self.get_speech_encoder() is None:
             speech_encoder = build_speech_encoder(self.config)
             if fsdp is not None and len(fsdp) > 0:
@@ -83,6 +82,8 @@ class OmniSpeechMetaForCausalLM(ABC):
         speech_encoder_type = self.config.speech_encoder_type
         speech_encoder = self.get_speech_encoder()
         if "whisper" in speech_encoder_type.lower():
+            # speech=speech.half()
+            # speech_encoder.half()
             encoder_outs = speech_encoder(speech.permute(0, 2, 1))
             speech_lengths = (speech_lengths + 1) // 2
         else:
@@ -106,7 +107,7 @@ class OmniSpeechMetaForCausalLM(ABC):
             return input_ids, position_ids, attention_mask, past_key_values, None, labels
 
         speech_features = self.encode_speech(speech, speech_lengths)
-
+        #print("speech_features:", speech_features[0])
         # Let's just add dummy tensors if they do not exist,
         # it is a headache to deal with None all the time.
         # But it is not ideal, and if you have a better idea,
@@ -132,7 +133,7 @@ class OmniSpeechMetaForCausalLM(ABC):
         new_labels = []
         cur_speech_idx = 0
         for batch_idx, cur_input_ids in enumerate(input_ids):
-            num_speech = (cur_input_ids == SPEECH_TOKEN_INDEX).sum()
+            num_speech = (cur_input_ids == SPEECH_TOKEN_INDEX).sum() #-200是语音的标记，出现几次有几个语音
             if num_speech == 0:
                 cur_speech_features = speech_features[cur_speech_idx]
                 cur_input_embeds_1 = self.get_model().embed_tokens(cur_input_ids)
@@ -143,35 +144,35 @@ class OmniSpeechMetaForCausalLM(ABC):
                 continue
 
             speech_token_indices = [-1] + torch.where(cur_input_ids == SPEECH_TOKEN_INDEX)[0].tolist() + [cur_input_ids.shape[0]]
+            #[-1, 45, 62] 45是token -200的位置
             cur_input_ids_nospeech = []
-            cur_labels = labels[batch_idx]
+            cur_labels = labels[batch_idx] #都是-100，长度是62
             cur_labels_nospeech = []
             for i in range(len(speech_token_indices) - 1):
-                cur_input_ids_nospeech.append(cur_input_ids[speech_token_indices[i]+1:speech_token_indices[i+1]])
-                cur_labels_nospeech.append(cur_labels[speech_token_indices[i]+1:speech_token_indices[i+1]])
+                cur_input_ids_nospeech.append(cur_input_ids[speech_token_indices[i]+1:speech_token_indices[i+1]]) #cur_input_ids[0:45]、cur_input_ids[46:62]
+                cur_labels_nospeech.append(cur_labels[speech_token_indices[i]+1:speech_token_indices[i+1]]) #len 45的-100列表、[46:62] -100
             split_sizes = [x.shape[0] for x in cur_labels_nospeech]
-            cur_input_embeds = self.get_model().embed_tokens(torch.cat(cur_input_ids_nospeech))
+            cur_input_embeds = self.get_model().embed_tokens(torch.cat(cur_input_ids_nospeech)) #Embedding(128256, 4096) torch.Size([61, 4096])
             cur_input_embeds_no_speech = torch.split(cur_input_embeds, split_sizes, dim=0)
             cur_new_input_embeds = []
             cur_new_labels = []
 
-            for i in range(num_speech + 1):
+            for i in range(num_speech + 1):  #上面两段文本，中间加了一次音频特征
                 cur_new_input_embeds.append(cur_input_embeds_no_speech[i])
                 cur_new_labels.append(cur_labels_nospeech[i])
                 if i < num_speech:
-                    cur_speech_features = speech_features[cur_speech_idx]
+                    cur_speech_features = speech_features[cur_speech_idx] #torch.Size([300, 4096])
                     cur_speech_idx += 1
                     cur_new_input_embeds.append(cur_speech_features)
                     cur_new_labels.append(torch.full((cur_speech_features.shape[0],), IGNORE_INDEX, device=cur_labels.device, dtype=cur_labels.dtype))
-
+                    #填充和cur_speech_features等长的-100列表
             cur_new_input_embeds = [x.to(self.device) for x in cur_new_input_embeds]
 
-            cur_new_input_embeds = torch.cat(cur_new_input_embeds)
-            cur_new_labels = torch.cat(cur_new_labels)
+            cur_new_input_embeds = torch.cat(cur_new_input_embeds) #torch.Size([361, 4096])
+            cur_new_labels = torch.cat(cur_new_labels) #torch.Size([361])
 
             new_input_embeds.append(cur_new_input_embeds)
             new_labels.append(cur_new_labels)
-
         # Truncate sequences to max length as speech features can make the sequence longer
         tokenizer_model_max_length = getattr(self.config, 'tokenizer_model_max_length', None)
         if tokenizer_model_max_length is not None:
@@ -186,7 +187,6 @@ class OmniSpeechMetaForCausalLM(ABC):
         new_labels_padded = torch.full((batch_size, max_len), IGNORE_INDEX, dtype=new_labels[0].dtype, device=new_labels[0].device)
         attention_mask = torch.zeros((batch_size, max_len), dtype=attention_mask.dtype, device=attention_mask.device)
         position_ids = torch.zeros((batch_size, max_len), dtype=position_ids.dtype, device=position_ids.device)
-
         for i, (cur_new_embed, cur_new_labels) in enumerate(zip(new_input_embeds, new_labels)):
             cur_len = cur_new_embed.shape[0]
             if getattr(self.config, 'tokenizer_padding_side', 'right') == "left":
@@ -222,5 +222,6 @@ class OmniSpeechMetaForCausalLM(ABC):
 
         if _position_ids is None:
             position_ids = None
-
+        #return None, position_ids, attention_mask, past_key_values, new_input_embeds, new_labels
+        # print(", ".join(map(str, new_labels)))
         return None, position_ids, attention_mask, past_key_values, new_input_embeds, new_labels

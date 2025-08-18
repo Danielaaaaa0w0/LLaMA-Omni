@@ -29,20 +29,19 @@ def get_chunk(lst, n, k):
 
 # Custom dataset class
 class CustomDataset(Dataset):
-    def __init__(self, questions, tokenizer, model_config, input_type, mel_size, conv_mode):
+    def __init__(self, questions, tokenizer, model_config, input_type, mel_size):
         self.questions = questions
         self.tokenizer = tokenizer
         self.model_config = model_config
         self.input_type = input_type
         self.mel_size = mel_size
-        self.conv_mode = conv_mode
 
     def __getitem__(self, index):
         item = self.questions[index]
         speech_file = item["speech"]
         qs = item["conversations"][0]["value"]
 
-        conv = conv_templates[self.conv_mode].copy()
+        conv = conv_templates[args.conv_mode].copy()
         conv.append_message(conv.roles[0], qs)
         conv.append_message(conv.roles[1], None)
         prompt = conv.get_prompt()
@@ -55,7 +54,7 @@ class CustomDataset(Dataset):
         elif self.input_type == "mel":
             speech = whisper.pad_or_trim(speech)
             speech = whisper.log_mel_spectrogram(speech, n_mels=self.mel_size).permute(1, 0)
-
+        print(prompt)
         input_ids = tokenizer_speech_token(prompt, self.tokenizer, return_tensors='pt')
 
         return input_ids, speech, torch.LongTensor([speech.shape[0]])
@@ -75,14 +74,14 @@ def collate_fn(batch):
 def ctc_postprocess(tokens, blank):
     _toks = tokens.squeeze(0).tolist()
     deduplicated_toks = [v for i, v in enumerate(_toks) if i == 0 or v != _toks[i - 1]]
-    hyp = [v for v in deduplicated_toks if v != blank]
-    hyp = " ".join(list(map(str, hyp)))
+    hyp = [v for v in deduplicated_toks if v != blank] #官方493 222
+    hyp = " ".join(list(map(str, hyp))) #1918 547
     return hyp
 
 # DataLoader
-def create_data_loader(questions, tokenizer, model_config, input_type, mel_size, conv_mode, batch_size=1, num_workers=4):
+def create_data_loader(questions, tokenizer, model_config, input_type, mel_size, batch_size=1, num_workers=4):
     assert batch_size == 1, "batch_size must be 1"
-    dataset = CustomDataset(questions, tokenizer, model_config, input_type, mel_size, conv_mode)
+    dataset = CustomDataset(questions, tokenizer, model_config, input_type, mel_size)
     data_loader = DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, shuffle=False, collate_fn=collate_fn)
     return data_loader
 
@@ -92,16 +91,18 @@ def eval_model(args):
     disable_torch_init()
     model_path = os.path.expanduser(args.model_path)
     tokenizer, model, context_len = load_pretrained_model(model_path, args.model_base, is_lora=args.is_lora, s2s=args.s2s)
-
+    #tokenizer长度128000+256 model:OmniSpeech2SLlamaForCausalLM(OmniSpeechLlamaModel、speech_encoder、speech_projector、speech_generator)
     questions = json.load(open(os.path.expanduser(args.question_file), "r"))
+    #{'id': 'helpful_base_1', 'speech': 'omni_speech/infer/examples/question_wav/helpful_base_1.wav', 'conversations': [{'from': 'human', 'value': "<speech>\nPlease directly answer the questions in the user's speech."}]}
     questions = get_chunk(questions, args.num_chunks, args.chunk_idx)
     answers_file = os.path.expanduser(args.answer_file)
     os.makedirs(os.path.dirname(answers_file), exist_ok=True)
     ans_file = open(answers_file, "w")
 
-    data_loader = create_data_loader(questions, tokenizer, model.config, args.input_type, args.mel_size, args.conv_mode)
+    data_loader = create_data_loader(questions, tokenizer, model.config, args.input_type, args.mel_size)
 
     for (input_ids, speech_tensor, speech_length), item in tqdm(zip(data_loader, questions), total=len(questions)):
+        #torch.Size([1, 62]),torch.Size([1, 3000, 128]) #tensor([[3000]])
         idx = item["id"]
         try:
             answer = item["conversations"][1]["value"]
@@ -145,7 +146,7 @@ def eval_model(args):
         outputs = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
         if args.s2s:
             output_units = ctc_postprocess(output_units, blank=model.config.unit_vocab_size)
-
+        #547个token
         print(f"H-{idx}\t{outputs}")
         print(f"T-{idx}\t{answer}")
         if args.s2s:
@@ -154,7 +155,7 @@ def eval_model(args):
         if args.s2s:
             ans_file.write(json.dumps({"question_id": idx, "prediction": outputs, "prediction_units": output_units, "answer": answer}) + "\n")
         else:
-            ans_file.write(json.dumps({"question_id": idx, "prediction": outputs, "answer": answer}) + "\n")
+            ans_file.write(json.dumps({"question_id": idx, "prediction": outputs, "answer": answer} ,ensure_ascii=False) + "\n")
         # ans_file.flush()
     ans_file.close()
 
@@ -177,5 +178,4 @@ if __name__ == "__main__":
     parser.add_argument("--s2s", action="store_true", default=False)
     parser.add_argument("--is_lora", action="store_true", default=False)
     args = parser.parse_args()
-
     eval_model(args)

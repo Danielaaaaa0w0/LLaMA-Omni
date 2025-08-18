@@ -80,6 +80,10 @@ class SpeechGeneratorCTC(nn.Module):
         ctc_lens = attention_mask.long().sum(dim=-1)
         ctc_tgt_lens = tgt_units.ne(IGNORE_INDEX).long().sum(dim=-1)
         ctc_tgt_mask = ~lengths_to_padding_mask(ctc_tgt_lens)
+        
+        padding_vector = torch.full((tgt_units.shape[0], tgt_units.shape[1]-ctc_tgt_mask.shape[1]), False, dtype=torch.bool).to(ctc_tgt_mask.device)
+        ctc_tgt_mask = torch.cat((ctc_tgt_mask, padding_vector), dim=1)
+
         ctc_tgt_flat = tgt_units.masked_select(ctc_tgt_mask)
         ctc_loss = F.ctc_loss(
             ctc_lprobs.transpose(0, 1),
@@ -93,8 +97,9 @@ class SpeechGeneratorCTC(nn.Module):
         ctc_loss /= ctc_tgt_lens.sum().item()
         return ctc_loss
     
-    def predict(self, tgt_reps):
+    def predict(self, tgt_reps): #torch.Size([47, 4096])
         hidden_states, attention_mask, position_ids = self.upsample([tgt_reps])
+        #torch.Size([1, 1175, 4096]) #torch.Size([1, 1175])
         hidden_states = self.input_proj(hidden_states)
         for layer in self.layers:
             layer_outputs = layer(
@@ -103,7 +108,8 @@ class SpeechGeneratorCTC(nn.Module):
                 position_ids=position_ids,
             )
             hidden_states = layer_outputs[0]
-        ctc_logits = self.output_proj(hidden_states)
+        #torch.Size([1, 1175, 4096])
+        ctc_logits = self.output_proj(hidden_states) #torch.Size([1, 1175, 1001])
         ctc_lprobs = F.log_softmax(ctc_logits.float(), dim=-1, dtype=torch.float32)
         ctc_pred = ctc_lprobs.argmax(dim=-1).masked_fill_(~attention_mask, self.unit_vocab_size)
         return ctc_pred

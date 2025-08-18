@@ -17,7 +17,7 @@ class EncoderProjectorConcat(nn.Module):
 
     def forward(self, x):
         batch_size, seq_len, dim = x.size()
-        num_frames_to_discard = seq_len % self.k
+        num_frames_to_discard = seq_len % self.k #5的倍数
         if num_frames_to_discard > 0:
             x = x[:, :-num_frames_to_discard, :]
         seq_len = x.size(1)
@@ -28,3 +28,4 @@ class EncoderProjectorConcat(nn.Module):
         x = self.relu(x)
         x = self.linear2(x)
         return x
+    

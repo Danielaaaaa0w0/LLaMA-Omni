@@ -25,4 +25,5 @@ class WhisperWrappedEncoder:
         import whisper
         encoder = whisper.load_model(name=model_config.speech_encoder, device='cpu').encoder
         replace_layer_norm(encoder)
+        
         return encoder

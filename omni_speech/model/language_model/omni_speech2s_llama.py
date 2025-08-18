@@ -35,7 +35,7 @@ class OmniSpeech2SLlamaForCausalLM(OmniSpeechLlamaForCausalLM, GenerationWithCTC
         self.config.ctc_upsample_factor = getattr(model_args, 'ctc_upsample_factor', 1)
         self.config.ctc_loss_weight = getattr(model_args, 'ctc_loss_weight', 1.0)
         self.config.unit_vocab_size = getattr(model_args, 'unit_vocab_size', 1000)
-        self.tune_speech_generator_only = getattr(model_args, 'tune_speech_generator_only', False)
+        self.tune_speech_generator_only = getattr(model_args, 'tune_speech_generator_only', True)
         if getattr(self, "speech_generator", None) is None:
             self.speech_generator = build_speech_generator(self.config)
 
@@ -76,7 +76,7 @@ class OmniSpeech2SLlamaForCausalLM(OmniSpeechLlamaForCausalLM, GenerationWithCTC
             )
 
         if self.training:
-            if self.tune_speech_generator_only:
+            if self.tune_speech_generator_only: 
                 with torch.no_grad():
                     llama_output = super(OmniSpeechLlamaForCausalLM, self).forward(
                         input_ids=input_ids,
@@ -163,7 +163,6 @@ class OmniSpeech2SLlamaForCausalLM(OmniSpeechLlamaForCausalLM, GenerationWithCTC
             )
         else:
             inputs_embeds = self.get_model().embed_tokens(inputs)
-
         outputs = GenerationWithCTC.generate(
             self,
             position_ids=position_ids,
@@ -174,10 +173,12 @@ class OmniSpeech2SLlamaForCausalLM(OmniSpeechLlamaForCausalLM, GenerationWithCTC
             streaming_unit_gen=streaming_unit_gen,
             **kwargs
         )
-
+        #odict_keys(['sequences', 'hidden_states', 'past_key_values'])
+        # sequences:torch.Size([1, 52]) hidden_states:torch.Size([1, 52, 4096]) past_key_values:torch.Size([1, 52, 4096])
         hidden_states = outputs['hidden_states']
         hidden_states = torch.cat([hidden_states[0][-1][:, -1:, :]] + [hidden_states[i][-1] for i in range(1, len(hidden_states))], dim=1)
-        ctc_pred = self.speech_generator.predict(hidden_states.squeeze(0))
+        #torch.Size([1, 47, 4096])
+        ctc_pred = self.speech_generator.predict(hidden_states.squeeze(0)) #torch.Size([1, 1300])
 
         return outputs.sequences, ctc_pred
 
