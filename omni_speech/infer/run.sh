@@ -6,9 +6,9 @@
 # VOCODER_CFG=vocoder/config.json
 
 python omni_speech/infer/infer.py \
-    --model-path /mnt/md0/user_yuze0w0/LLAMA_tw-zh/LLaMA-Omni/saves2/checkpoint-96000 \
-    --question-file /mnt/md0/user_yuze0w0/dataset/taigi_100h/data_cn/dev.json \
-    --answer-file /mnt/md0/user_yuze0w0/dataset/taigi_100h/data_cn/answer_ckpt96000_dev.json \
+    --model-path /mnt/md0/user_yuze0w0/LLAMA_tw-zh/LLaMA-Omni/saves3/checkpoint-139270 \
+    --question-file /mnt/md0/user_yuze0w0/LLAMA_tw-zh/LLaMA-Omni/mandarin_100h_json/dev_mandarin_100h.json \
+    --answer-file /mnt/md0/user_yuze0w0/LLAMA_tw-zh/LLaMA-Omni/mandarin_100h_json/answer_ckpt139270_dev.json \
     --num-chunks 1 \
     --chunk-idx 0 \
     --temperature 0 \

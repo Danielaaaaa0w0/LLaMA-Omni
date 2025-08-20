@@ -18,7 +18,7 @@ def create_data_json_new_format(dataset_base_path, output_base_path, prompt):
 
     for split in ["train", "dev", "test"]:
         text_file_path = os.path.join(text_base_path, split, "text")
-        output_json_path = os.path.join(output_base_path, f"{split}_final.json") # 檔名加上 _final 以區別
+        output_json_path = os.path.join(output_base_path, f"{split}_taigi_100h.json") # 檔名加上 _final 以區別
 
         if not os.path.exists(text_file_path):
             print(f"警告：找不到檔案 {text_file_path}，跳過此部分。")
@@ -67,8 +67,8 @@ if __name__ == "__main__":
     # 資料集根目錄
     dataset_base_path = "/mnt/md0/user_yuze0w0/dataset/taigi_100h"
     # 輸出 JSON 檔案的目錄
-    output_base_path = "/mnt/md0/user_yuze0w0/dataset/taigi_100h/data_cn"
+    output_base_path = "/mnt/md0/user_yuze0w0/LLAMA_tw-zh/LLaMA-Omni/taigi_100h_json"
     # 您指定的 prompt
-    prompt = "Please translate the user's speech to Chinese."
+    prompt = "Translate the following Taiwanese Hokkien speech into Chinese text."
     
     create_data_json_new_format(dataset_base_path, output_base_path, prompt)
